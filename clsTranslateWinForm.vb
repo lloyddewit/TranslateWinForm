@@ -118,7 +118,7 @@ Public NotInheritable Class clsTranslateWinForm
     ''' </summary>
     '''
     ''' <param name="tsCollection">     The WinForm menu items to translate. </param>
-    ''' <param name="ctrParent">        The counter parent. </param>
+    ''' <param name="ctrParent">        The WinForm control that is the parent of the menu. </param>
     ''' <param name="strDataSource">    The path of the SQLite '.db' file that contains the
     '''                                 translation database. </param>
     ''' <param name="strLanguage">      (Optional) The language code to translate to (e.g. 'fr' for
