@@ -21,7 +21,8 @@ Imports System.Windows.Forms
 ''' Provides utility functions to translate the text in WinForm objects (e.g. menu items, forms and 
 ''' controls) to a different natural language (e.g. to French). 
 ''' <para>
-''' This class uses an SQLite database to translate text items to a new language. The database must contain the following tables:
+''' This class uses an SQLite database to translate text items to a new language. The database must 
+''' contain the following tables:
 ''' <code>
 ''' CREATE TABLE "form_controls" (
 '''	"form_name"	TEXT,
@@ -63,18 +64,25 @@ Public NotInheritable Class clsTranslateWinForm
     '''--------------------------------------------------------------------------------------------
     ''' <summary>
     '''     TODO this function is still under development - please do not peer review or test yet. 
-    '''     Attempts to translate all the text in <paramref name="clsForm"/> to <paramref name="strLanguage"/>.
+    '''     Attempts to translate all the text in <paramref name="clsForm"/> to 
+    '''     <paramref name="strLanguage"/>.
     ''' </summary>
     '''
     ''' <param name="clsForm">          The WinForm form to translate. </param>
     ''' <param name="strDataSource">    The path of the SQLite '.db' file that contains the
     '''                                 translation database. </param>
-    ''' <param name="strLanguage">      The language code to translate to (e.g. 'fr' for French). </param>
+    ''' <param name="strLanguage">      The language code to translate to (e.g. 'fr' for French). 
+    '''                                 </param>
     '''
-    ''' <returns>   If an exception is thrown, then returns the exception text; else returns Nothing. </returns>
+    ''' <returns>   If an exception is thrown, then returns the exception text; else returns 
+    '''             'Nothing'. </returns>
     '''--------------------------------------------------------------------------------------------
-    Public Shared Function translateForm(clsForm As Form, strDataSource As String, strLanguage As String) As String
+    Public Shared Function translateForm(clsForm As Form, strDataSource As String,
+                                         strLanguage As String) As String
         Try
+            Dim dctControls As Dictionary(Of String, Control) = New Dictionary(Of String, Control)
+            GetDctControls(clsForm, dctControls)
+
             'connect to the SQLite database that contains the translations
             Dim clsBuilder As New SQLiteConnectionStringBuilder With {
                 .FailIfMissing = True,
@@ -92,10 +100,18 @@ Public NotInheritable Class clsTranslateWinForm
                         'for each translation row
                         While (clsReader.Read())
 
+                            'ignore rows where the translation text is null or missing
+                            If clsReader.FieldCount < 2 OrElse clsReader.IsDBNull(1) Then
+                                Continue While
+                            End If
+
                             'translate the control's text to the new language
                             Dim strControlName As String = clsReader.GetString(0)
                             Dim strTranslation As String = clsReader.GetString(1)
-                            CallByName(clsForm.Controls(strControlName), "Text", CallType.Set, strTranslation)
+                            Dim ctlTemp As Control = Nothing
+                            If dctControls.TryGetValue(strControlName, ctlTemp) Then
+                                ctlTemp.Text = strTranslation
+                            End If
 
                         End While
                     End Using
@@ -177,6 +193,29 @@ Public NotInheritable Class clsTranslateWinForm
         Return Nothing
     End Function
 
+    Private Shared Sub GetDctControls(ctlParent As Control, ByRef dctControls As Dictionary(Of String, Control))
+        'Dim dctControls As Dictionary(Of String, Control) =
+        '        New Dictionary(Of String, Control)
+
+        For Each ctlChild As Control In ctlParent.Controls
+            If Not String.IsNullOrEmpty(ctlChild.Name) AndAlso
+                    Not String.IsNullOrEmpty(ctlChild.Text) AndAlso
+                    Not dctControls.ContainsKey(ctlChild.Name) Then
+                dctControls.Add(ctlChild.Name, ctlChild)
+            End If
+            Dim ctlTemp As Control = TryCast(ctlChild, Control)
+            If ctlTemp IsNot Nothing AndAlso Not IsNothing(ctlTemp.Controls) Then
+                GetDctControls(ctlTemp, dctControls)
+                'Dim dctChildControls As Dictionary(Of String, Control) =
+                '        GetDctControls(ctlTemp)
+                'dctControls = dctControls.Union(dctChildControls).ToDictionary(Function(p) p.Key,
+                '                                                                Function(p) p.Value)
+            End If
+        Next
+
+        'Return dctControls
+    End Sub
+
     '''--------------------------------------------------------------------------------------------
     ''' <summary>   
     '''     Recursively traverses the <paramref name="tsCollection"/> menu hierarchy and returns a 
@@ -195,17 +234,21 @@ Public NotInheritable Class clsTranslateWinForm
     ''' </returns>
     '''--------------------------------------------------------------------------------------------
     Private Shared Function GetDctMenuItems(tsCollection As ToolStripItemCollection) As Dictionary(Of String, ToolStripMenuItem)
-        Dim dctMenuItems As Dictionary(Of String, ToolStripMenuItem) = New Dictionary(Of String, ToolStripMenuItem)
+        Dim dctMenuItems As Dictionary(Of String, ToolStripMenuItem) =
+                New Dictionary(Of String, ToolStripMenuItem)
 
         For Each tsItem As ToolStripItem In tsCollection
-            If Not String.IsNullOrEmpty(tsItem.Name) AndAlso Not String.IsNullOrEmpty(tsItem.Text) AndAlso
+            If Not String.IsNullOrEmpty(tsItem.Name) AndAlso
+                    Not String.IsNullOrEmpty(tsItem.Text) AndAlso
                     Not dctMenuItems.ContainsKey(tsItem.Name) Then
                 dctMenuItems.Add(tsItem.Name, tsItem)
             End If
             Dim mnuItem As ToolStripMenuItem = TryCast(tsItem, ToolStripMenuItem)
             If mnuItem IsNot Nothing AndAlso mnuItem.HasDropDownItems Then
-                Dim dctSubMenuItems As Dictionary(Of String, ToolStripMenuItem) = GetDctMenuItems(mnuItem.DropDownItems)
-                dctMenuItems = dctMenuItems.Union(dctSubMenuItems).ToDictionary(Function(p) p.Key, Function(p) p.Value)
+                Dim dctSubMenuItems As Dictionary(Of String, ToolStripMenuItem) =
+                        GetDctMenuItems(mnuItem.DropDownItems)
+                dctMenuItems = dctMenuItems.Union(dctSubMenuItems).ToDictionary(Function(p) p.Key,
+                                                                                Function(p) p.Value)
             End If
         Next
 
