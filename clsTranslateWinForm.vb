@@ -127,6 +127,44 @@ Public NotInheritable Class clsTranslateWinForm
 
     '''--------------------------------------------------------------------------------------------
     ''' <summary>   
+    '''    Returns <paramref name="strText"/> translated into <paramref name="strLanguage"/>. 
+    '''    <para>
+    '''    Translations can be bi-directional (e.g. from English to French or from French to English).
+    '''    If <paramref name="strText"/> is already in the current language, or if no translation 
+    '''    can be found, then returns <paramref name="strText"/>.         
+    '''    </para></summary>
+    '''
+    ''' <param name="strText">          The text to translate. </param>
+    ''' <param name="strDataSource">    The path of the SQLite '.db' file that contains the
+    '''                                 translation database. </param>
+    ''' <param name="strLanguage">      The language code to translate to (e.g. 'fr' for French).
+    '''                                 </param>
+    '''
+    ''' <returns>   <paramref name="strText"/> translated into <paramref name="strLanguage"/>. </returns>
+    '''--------------------------------------------------------------------------------------------
+    Public Shared Function GetTranslation(strText As String, strDataSource As String,
+                                          strLanguage As String) As String
+        Dim strTranslation As String = ""
+        Try
+            'connect to the SQLite database that contains the translations
+            Dim clsBuilder As New SQLiteConnectionStringBuilder With {
+                .FailIfMissing = True,
+                .DataSource = strDataSource}
+            Using clsConnection As New SQLiteConnection(clsBuilder.ConnectionString)
+                clsConnection.Open()
+                strTranslation = GetDynamicTranslation(strText, strLanguage, clsConnection)
+                clsConnection.Close()
+            End Using
+        Catch e As Exception
+            Return e.Message & Environment.NewLine &
+                    "A problem occured attempting to translate string '" & strText &
+                    "' to language " & strLanguage & " using database " & strDataSource & "."
+        End Try
+        Return strTranslation
+    End Function
+
+    '''--------------------------------------------------------------------------------------------
+    ''' <summary>   
     '''     Recursively traverses the <paramref name="clsControl"/> control hierarchy and returns a
     '''     string containing the parent, name and associated text of each control. The string is 
     '''     formatted as a comma-separated list suitable for importing into a database.
@@ -150,18 +188,15 @@ Public NotInheritable Class clsTranslateWinForm
 
         Dim strControlsAsCsv As String = ""
         For Each clsComponent In dctComponents
-            ' If TypeOf clsControl Is ucrCheck OrElse TypeOf clsControl Is ucrInput Then
-
             If TypeOf clsComponent.Value Is Control Then
                 Dim clsTmpControl As Control = DirectCast(clsComponent.Value, Control)
-                strControlsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & clsTmpControl.Text & vbCrLf
+                strControlsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & GetCsvText(clsTmpControl.Text) & vbCrLf
             ElseIf TypeOf clsComponent.Value Is ToolStripItem Then
                 Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent.Value, ToolStripItem)
-                strControlsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & clsMenuItem.Text & vbCrLf
+                strControlsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & GetCsvText(clsMenuItem.Text) & vbCrLf
             Else
                 MsgBox("Developer Error: Translation dictionary entry (" & clsControl.Name & "," & clsComponent.Key & ") contained unexpected value type.")
             End If
-
         Next
 
         Return strControlsAsCsv
@@ -196,7 +231,7 @@ Public NotInheritable Class clsTranslateWinForm
 
             If TypeOf clsComponent.Value Is ToolStripItem Then
                 Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent.Value, ToolStripItem)
-                strMenuItemsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & clsMenuItem.Text & vbCrLf
+                strMenuItemsAsCsv &= clsControl.Name & "," & clsComponent.Key & "," & GetCsvText(clsMenuItem.Text) & vbCrLf
             Else
                 MsgBox("Developer Error: Translation dictionary entry (" & clsControl.Name & "," & clsComponent.Key & ") contained unexpected value type.")
             End If
@@ -223,11 +258,13 @@ Public NotInheritable Class clsTranslateWinForm
         End If
 
         'if control is valid, then add it to the dictionary
+        'If Not (String.IsNullOrEmpty(clsControl.Name) OrElse
+        '            String.IsNullOrEmpty(clsControl.Text) OrElse
+        '            clsControl.Text.Contains(vbCr) OrElse clsControl.Text.Contains(vbLf) OrElse 'ignore multiline text
+        '            Not Regex.IsMatch(clsControl.Text, "[a-zA-Z]") OrElse 'ignore text that doesn't contain any letters (e.g. number strings)
+        '            dctComponents.ContainsKey(clsControl.Name)) Then 'ignore components that are already in the dictionary
         If Not (String.IsNullOrEmpty(clsControl.Name) OrElse
-                    String.IsNullOrEmpty(clsControl.Text) OrElse
-                    clsControl.Text.Contains(vbCr) OrElse clsControl.Text.Contains(vbLf) OrElse 'ignore multiline text
-                    Not Regex.IsMatch(clsControl.Text, "[a-zA-Z]") OrElse 'ignore text that doesn't contain any letters (e.g. number strings)
-                    dctComponents.ContainsKey(clsControl.Name)) Then 'ignore components that are already in the dictionary
+                dctComponents.ContainsKey(clsControl.Name)) Then 'ignore components that are already in the dictionary
             dctComponents.Add(clsControl.Name, clsControl)
         End If
 
@@ -267,9 +304,6 @@ Public NotInheritable Class clsTranslateWinForm
 
             'if menu item is valid, then add it to the dictionary
             If Not (String.IsNullOrEmpty(clsMenuItem.Name) OrElse
-                    String.IsNullOrEmpty(clsMenuItem.Text) OrElse
-                    clsMenuItem.Text.Contains(vbCr) OrElse clsMenuItem.Text.Contains(vbLf) OrElse 'ignore multiline text
-                    Not Regex.IsMatch(clsMenuItem.Text, "[a-zA-Z]") OrElse 'ignore text that doesn't contain any letters (e.g. number strings)
                     dctComponents.ContainsKey(clsMenuItem.Name)) Then 'ignore components that are already in the dictionary
                 dctComponents.Add(clsMenuItem.Name, clsMenuItem)
             End If
@@ -328,7 +362,7 @@ Public NotInheritable Class clsTranslateWinForm
                 Using clsCommand As New SQLiteCommand(clsConnection)
 
                     'get all translations for the specified form and language
-                    clsCommand.CommandText = "SELECT control_name, translation FROM form_controls, translations WHERE form_name = '" & strControlName &
+                    clsCommand.CommandText = "SELECT control_name, form_controls.id_text, translation FROM form_controls, translations WHERE form_name = '" & strControlName &
                                          "' AND language_code = '" & strLanguage & "' And form_controls.id_text = translations.id_text"
                     Dim clsReader As SQLiteDataReader = clsCommand.ExecuteReader()
                     Using clsReader
@@ -337,18 +371,23 @@ Public NotInheritable Class clsTranslateWinForm
                         While (clsReader.Read())
 
                             'ignore rows where the translation text is null or missing
-                            If clsReader.FieldCount < 2 OrElse clsReader.IsDBNull(1) Then
+                            If clsReader.FieldCount < 3 OrElse clsReader.IsDBNull(2) Then
                                 Continue While
                             End If
 
                             'translate the component's text to the new language
                             Dim strComponentlName As String = clsReader.GetString(0)
-                            Dim strTranslation As String = clsReader.GetString(1)
+                            Dim strIdText As String = clsReader.GetString(1)
+                            Dim strTranslation As String = clsReader.GetString(2)
                             Dim clsComponent As Component = Nothing
                             If dctComponents.TryGetValue(strComponentlName, clsComponent) Then
                                 If TypeOf clsComponent Is Control Then
                                     Dim clsControl As Control = DirectCast(clsComponent, Control)
-                                    clsControl.Text = strTranslation
+                                    If strIdText = "ReplaceWithDynamicTranslation" Then
+                                        clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
+                                    Else
+                                        clsControl.Text = strTranslation
+                                    End If
                                 ElseIf TypeOf clsComponent Is ToolStripItem Then
                                     Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent, ToolStripItem)
                                     clsMenuItem.Text = strTranslation
@@ -369,5 +408,85 @@ Public NotInheritable Class clsTranslateWinForm
         End Try
         Return Nothing
     End Function
+
+    '''--------------------------------------------------------------------------------------------
+    ''' <summary>   
+    '''    Returns <paramref name="strText"/> translated into <paramref name="strLanguage"/>. 
+    '''    <para>
+    '''    Translations can be bi-directional (e.g. from English to French or from French to English).
+    '''    If <paramref name="strText"/> is already in the current language, or if no translation 
+    '''    can be found, then returns <paramref name="strText"/>.         
+    '''    </para></summary>
+    '''
+    ''' <param name="strText">          The text to translate. </param>
+    ''' <param name="strLanguage">      The language code to translate to (e.g. 'fr' for French).
+    '''                                 </param>
+    ''' <param name="clsConnection">    An open connection to the SQLite translation database. </param>
+    '''
+    ''' <returns>   <paramref name="strText"/> translated into <paramref name="strLanguage"/>. </returns>
+    '''--------------------------------------------------------------------------------------------
+    Private Shared Function GetDynamicTranslation(strText As String, strLanguage As String, clsConnection As SQLiteConnection) As String
+        If String.IsNullOrEmpty(strText) Then
+            Return ""
+        End If
+
+        Using clsCommand As New SQLiteCommand(clsConnection)
+
+            'in the translation text, convert any single quotes to make them suitable for the SQL command
+            strText = strText.Replace("'", "''")
+
+            'get all translations for the specified form and language
+            'Note: The second `SELECT` is needed because we may sometimes need to translate  
+            '      translated text back to the original text (e.g. from French to English when 
+            '      the dialog language toggle button is clicked).
+            clsCommand.CommandText = "SELECT translation FROM translations WHERE language_code = '" &
+                                     strLanguage & "' AND id_text = '" & strText & "' OR (language_code = '" &
+                                     strLanguage & "' AND id_text = " &
+                                     "(SELECT id_text FROM translations WHERE translation = '" & strText & "'))"
+            Dim clsReader As SQLiteDataReader = clsCommand.ExecuteReader()
+            Using clsReader
+                'for each translation row
+                While (clsReader.Read())
+                    'ignore rows where the translation text is null or missing
+                    If clsReader.FieldCount < 1 OrElse clsReader.IsDBNull(0) Then
+                        Continue While
+                    End If
+                    'return the translation text
+                    Return clsReader.GetString(0)
+                End While
+            End Using
+        End Using
+        'if no tranlsation text was found then return original text unchanged
+        Return strText
+    End Function
+
+    '''--------------------------------------------------------------------------------------------
+    ''' <summary>   
+    '''    Decides whether <paramref name="strText"/> is likely to be changed during execution of 
+    '''    the software. If no, then returns <paramref name="strText"/>. If yes, then returns 
+    '''    'ReplaceWithDynamicTranslation'. It makes the decision based upon a set of heuristics.
+    '''    <para>
+    '''    This function is normally only used when creating a comma-separated list suitable for 
+    '''    importing into a database. During program execution, the 'ReplaceWithDynamicTranslation'
+    '''    text tells the library to dynamically try and translate the current text, rather than
+    '''    looking up the static text associated with the control.</para></summary>
+    '''
+    ''' <param name="strText">  The text to assess. </param>
+    '''
+    ''' <returns>   Decides whether <paramref name="strText"/> is likely to be changed during 
+    '''             execution of the software. If no, then returns <paramref name="strText"/>. 
+    '''             If yes, then returns'ReplaceWithDynamicTranslation'. </returns>
+    '''--------------------------------------------------------------------------------------------
+    Private Shared Function GetCsvText(strText As String) As String
+        If String.IsNullOrEmpty(strText) OrElse
+                strText.Contains(vbCr) OrElse strText.Contains(vbLf) OrElse 'multiline text
+                Regex.IsMatch(strText, "CheckBox\d+$") OrElse 'CheckBox1, CheckBox2 etc. normally indicates dynamic translation
+                Regex.IsMatch(strText, "Label\d+$") OrElse 'Label1, Label2 etc. normally indicates dynamic translation
+                Not Regex.IsMatch(strText, "[a-zA-Z]") Then 'text that doesn't contain any letters (e.g. number strings)
+            Return "ReplaceWithDynamicTranslation"
+        End If
+        Return strText
+    End Function
+
 
 End Class

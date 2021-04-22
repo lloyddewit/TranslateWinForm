@@ -2,13 +2,13 @@
 <package >
   <metadata>
     <id>$id$</id>
-    <version>1.0.2</version>
+    <version>1.1.0</version>
     <title>$title$</title>
     <authors>IDEMS International</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">GPL-3.0-or-later</license>
     <description>Translates WinForm text (e.g. text in forms and menu items) into a different language (e.g. from English to French)</description>
-    <releaseNotes>Added functionality for translating dialogs and right-mouse-button menus.</releaseNotes>
+    <releaseNotes>Rebuild after publishing error.</releaseNotes>
     <copyright>$copyright$</copyright>
     <tags>Internationalization Translate</tags>
   </metadata>
