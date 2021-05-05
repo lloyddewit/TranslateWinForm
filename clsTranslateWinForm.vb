@@ -244,7 +244,7 @@ Public NotInheritable Class clsTranslateWinForm
     ''' <summary>
     '''    Populates dictionary <paramref name="dctComponents"/> with the control 
     '''    <paramref name="clsControl"/> and its children.    
-    '''    The dictionary can then be used to conveniently translate the menu item text (see other
+    '''    The dictionary can then be used to conveniently translate the control text (see other
     '''    functions and subs in this class).
     ''' </summary>
     '''
@@ -252,20 +252,20 @@ Public NotInheritable Class clsTranslateWinForm
     ''' <param name="dctComponents">    [in,out] Dictionary to store the control and its children. 
     '''                                 </param>
     '''--------------------------------------------------------------------------------------------
-    Private Shared Sub GetDctComponentsFromControl(clsControl As Control, ByRef dctComponents As Dictionary(Of String, Component))
+    Private Shared Sub GetDctComponentsFromControl(clsControl As Control,
+                                                   ByRef dctComponents As Dictionary(Of String, Component),
+                                                   Optional strParentName As String = "")
         If IsNothing(clsControl) OrElse IsNothing(clsControl.Controls) OrElse IsNothing(dctComponents) Then
             Exit Sub
         End If
 
         'if control is valid, then add it to the dictionary
-        'If Not (String.IsNullOrEmpty(clsControl.Name) OrElse
-        '            String.IsNullOrEmpty(clsControl.Text) OrElse
-        '            clsControl.Text.Contains(vbCr) OrElse clsControl.Text.Contains(vbLf) OrElse 'ignore multiline text
-        '            Not Regex.IsMatch(clsControl.Text, "[a-zA-Z]") OrElse 'ignore text that doesn't contain any letters (e.g. number strings)
-        '            dctComponents.ContainsKey(clsControl.Name)) Then 'ignore components that are already in the dictionary
-        If Not (String.IsNullOrEmpty(clsControl.Name) OrElse
-                dctComponents.ContainsKey(clsControl.Name)) Then 'ignore components that are already in the dictionary
-            dctComponents.Add(clsControl.Name, clsControl)
+        Dim strControlName As String = ""
+        If Not String.IsNullOrEmpty(clsControl.Name) Then
+            strControlName = If(String.IsNullOrEmpty(strParentName), clsControl.Name, strParentName & "_" & clsControl.Name)
+            If Not dctComponents.ContainsKey(strControlName) Then  'ignore components that are already in the dictionary
+                dctComponents.Add(strControlName, clsControl)
+            End If
         End If
 
         For Each ctlChild As Control In clsControl.Controls
@@ -278,7 +278,7 @@ Public NotInheritable Class clsTranslateWinForm
                 Dim clsToolStrip As ToolStrip = DirectCast(ctlChild, ToolStrip)
                 GetDctComponentsFromMenuItems(clsToolStrip.Items, dctComponents)
             ElseIf TypeOf ctlChild Is Control Then
-                GetDctComponentsFromControl(ctlChild, dctComponents)
+                GetDctComponentsFromControl(ctlChild, dctComponents, strControlName)
             End If
 
         Next
@@ -361,9 +361,9 @@ Public NotInheritable Class clsTranslateWinForm
                 clsConnection.Open()
                 Using clsCommand As New SQLiteCommand(clsConnection)
 
-                    'get all translations for the specified form and language
+                    'get all static translations for the specified form and language
                     clsCommand.CommandText = "SELECT control_name, form_controls.id_text, translation FROM form_controls, translations WHERE form_name = '" & strControlName &
-                                         "' AND language_code = '" & strLanguage & "' And form_controls.id_text = translations.id_text"
+                                         "' AND language_code = '" & strLanguage & "' AND form_controls.id_text = translations.id_text"
                     Dim clsReader As SQLiteDataReader = clsCommand.ExecuteReader()
                     Using clsReader
 
@@ -376,11 +376,11 @@ Public NotInheritable Class clsTranslateWinForm
                             End If
 
                             'translate the component's text to the new language
-                            Dim strComponentlName As String = clsReader.GetString(0)
+                            Dim strComponentName As String = clsReader.GetString(0)
                             Dim strIdText As String = clsReader.GetString(1)
                             Dim strTranslation As String = clsReader.GetString(2)
                             Dim clsComponent As Component = Nothing
-                            If dctComponents.TryGetValue(strComponentlName, clsComponent) Then
+                            If dctComponents.TryGetValue(strComponentName, clsComponent) Then
                                 If TypeOf clsComponent Is Control Then
                                     Dim clsControl As Control = DirectCast(clsComponent, Control)
                                     If strIdText = "ReplaceWithDynamicTranslation" Then
@@ -392,7 +392,29 @@ Public NotInheritable Class clsTranslateWinForm
                                     Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent, ToolStripItem)
                                     clsMenuItem.Text = strTranslation
                                 Else
-                                    MsgBox("Developer Error: Translation dictionary entry (" & strComponentlName & ") contained unexpected value type.")
+                                    MsgBox("Developer Error: Translation dictionary entry (" & strComponentName & ") contained unexpected value type.")
+                                End If
+                            End If
+
+                        End While
+
+                    End Using
+                    Using clsReader
+                        'get all controls with dynamic translations for the specified form
+                        clsCommand.CommandText = "SELECT control_name FROM form_controls WHERE form_name = '" & strControlName &
+                                                 "' AND id_text = 'ReplaceWithDynamicTranslation'"
+                        clsReader = clsCommand.ExecuteReader()
+
+                        'for each control with a dynamic translation
+                        While (clsReader.Read())
+
+                            'translate the component's text to the new language
+                            Dim strComponentName As String = clsReader.GetString(0)
+                            Dim clsComponent As Component = Nothing
+                            If dctComponents.TryGetValue(strComponentName, clsComponent) Then
+                                If TypeOf clsComponent Is Control Then 'currently we only dynamically translate controls
+                                    Dim clsControl As Control = DirectCast(clsComponent, Control)
+                                    clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
                                 End If
                             End If
 
