@@ -362,8 +362,11 @@ Public NotInheritable Class clsTranslateWinForm
                 Using clsCommand As New SQLiteCommand(clsConnection)
 
                     'get all static translations for the specified form and language
-                    clsCommand.CommandText = "SELECT control_name, form_controls.id_text, translation FROM form_controls, translations WHERE form_name = '" & strControlName &
-                                         "' AND language_code = '" & strLanguage & "' AND form_controls.id_text = translations.id_text"
+                    clsCommand.CommandText =
+                            "SELECT control_name, form_controls.id_text, translation " &
+                            "FROM form_controls, translations WHERE form_name = '" & strControlName &
+                            "' AND language_code = '" & strLanguage &
+                            "' AND form_controls.id_text = translations.id_text"
                     Dim clsReader As SQLiteDataReader = clsCommand.ExecuteReader()
                     Using clsReader
 
@@ -375,25 +378,30 @@ Public NotInheritable Class clsTranslateWinForm
                                 Continue While
                             End If
 
-                            'translate the component's text to the new language
+                            'find the component in the dictionary
                             Dim strComponentName As String = clsReader.GetString(0)
                             Dim strIdText As String = clsReader.GetString(1)
                             Dim strTranslation As String = clsReader.GetString(2)
-                            Dim clsComponent As Component = Nothing
-                            If dctComponents.TryGetValue(strComponentName, clsComponent) Then
-                                If TypeOf clsComponent Is Control Then
-                                    Dim clsControl As Control = DirectCast(clsComponent, Control)
-                                    If strIdText = "ReplaceWithDynamicTranslation" Then
-                                        clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
-                                    Else
-                                        clsControl.Text = strTranslation
-                                    End If
-                                ElseIf TypeOf clsComponent Is ToolStripItem Then
-                                    Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent, ToolStripItem)
-                                    clsMenuItem.Text = strTranslation
+                            Dim clsComponent As Component = GetComponent(dctComponents, strComponentName)
+
+                            'if component not found then continue to next translation row
+                            If clsComponent Is Nothing Then
+                                Continue While
+                            End If
+
+                            'translate the component's text to the new language
+                            If TypeOf clsComponent Is Control Then
+                                Dim clsControl As Control = DirectCast(clsComponent, Control)
+                                If strIdText = "ReplaceWithDynamicTranslation" Then
+                                    clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
                                 Else
-                                    MsgBox("Developer Error: Translation dictionary entry (" & strComponentName & ") contained unexpected value type.")
+                                    clsControl.Text = strTranslation
                                 End If
+                            ElseIf TypeOf clsComponent Is ToolStripItem Then
+                                Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent, ToolStripItem)
+                                clsMenuItem.Text = strTranslation
+                            Else
+                                MsgBox("Developer Error: Translation dictionary entry (" & strComponentName & ") contained unexpected value type.")
                             End If
 
                         End While
@@ -429,6 +437,58 @@ Public NotInheritable Class clsTranslateWinForm
                     " using database " & strDataSource & "."
         End Try
         Return Nothing
+    End Function
+
+    '''--------------------------------------------------------------------------------------------
+    ''' <summary>   
+    '''    Returns the component associated with <paramref name="strComponentName"/> in 
+    '''    <paramref name="dctComponents"/>.
+    '''    If an exact match is not found, then returns a component whose name is a superset of 
+    '''    <paramref name="strComponentName"/>. 
+    '''    If no match is found then returns Nothing.
+    ''' </summary>
+    '''
+    ''' <param name="dctComponents">    The dictionary of translatable components. </param>
+    ''' <param name="strComponentName"> Name of the component to search for. </param>
+    '''
+    ''' <returns>   The component associated with <paramref name="strComponentName"/> in
+    '''    <paramref name="dctComponents"/>. If an exact match is not found, then returns a 
+    '''    component whose name is a superset of <paramref name="strComponentName"/>.
+    '''    If no match is found then returns Nothing. </returns>
+    '''--------------------------------------------------------------------------------------------
+    Private Shared Function GetComponent(dctComponents As Dictionary(Of String, Component), strComponentName As String) As Component
+        Dim clsComponent As Component = Nothing
+
+        If dctComponents.TryGetValue(strComponentName, clsComponent) OrElse
+                Not Regex.IsMatch(strComponentName, "\w+_\w+_\w+") Then
+            Return clsComponent
+        End If
+
+        'Edge Case: If the component name is not found in the dictionary, then look for a dictionary 
+        '  key that is a superset of the component name. This check is needed because the 
+        '  hierarchy of the WinForm controls may be slightly different at runtime, compared to 
+        '  when the translation database was generated.
+        '  For example, during testing we found cases for sub-dialog->tab->group->panel->radioButton 
+        '  similar to:
+        '    Database component name: sdgPlots_tbpPlotsOptions_tbpXAxis_ucrXAxis_grpAxisTitle_rdoSpecifyTitle
+        '    Runtime  component name: sdgPlots_tbpPlotsOptions_tbpXAxis_ucrXAxis_grpAxisTitle_ucrPnlAxisTitle_rdoSpecifyTitle
+
+        'split the full component name into 2 parts: parent names & child name
+        '  e.g 'sdgPlots_tbpPlotsOptions_tbpXAxis_ucrXAxis_grpAxisTitle' & '_rdoSpecifyTitle'
+        Dim iTmpIndex As Integer = strComponentName.LastIndexOf("_")
+        Dim strParentNames As String = strComponentName.Substring(0, iTmpIndex)
+        Dim strControlName As String = strComponentName.Substring(iTmpIndex)
+
+        'if the dictionary contains a single key that matches <parents>_<other controls>_<child>,
+        '  then return the component associated with that key
+        Dim lstComponents As List(Of Component) =
+            dctComponents.Where(Function(x) Regex.IsMatch(x.Key, strParentNames & "\w+_\w+" & strControlName)) _
+            .Select(Function(x) x.Value).ToList()
+        If lstComponents.Count = 1 Then
+            clsComponent = lstComponents(0)
+        End If
+
+        Return clsComponent
     End Function
 
     '''--------------------------------------------------------------------------------------------
