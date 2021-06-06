@@ -15,6 +15,7 @@
 ' along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Imports System.ComponentModel
 Imports System.Data.SQLite
+Imports System.Reflection
 Imports System.Text.RegularExpressions
 Imports System.Windows.Forms
 
@@ -336,7 +337,8 @@ Public NotInheritable Class clsTranslateWinForm
     '''     Opens database <paramref name="strDataSource"/> and reads in all translations for the 
     '''     <paramref name="strControlName"/> control for target language <paramref name="strLanguage"/>.
     '''     For each translation in the database, attempts to find the corresponding control or menu 
-    '''     item in <paramref name="dctComponents"/>. If found, then it translates the text to the target language.
+    '''     item in <paramref name="dctComponents"/>. If found, then it translates the text to the target 
+    '''     language. If a control has a tool tip, then it also translates the tool tip.
     ''' </summary>
     '''
     ''' <param name="dctComponents">    [in,out] The dictionary of translatable components. </param>
@@ -350,8 +352,32 @@ Public NotInheritable Class clsTranslateWinForm
     ''' </returns>
     '''--------------------------------------------------------------------------------------------
     Private Shared Function TranslateDctComponents(ByRef dctComponents As Dictionary(Of String, Component),
-                                                   strControlName As String, strDataSource As String,
+                                                   strControlName As String,
+                                                   strDataSource As String,
                                                    strLanguage As String) As String
+        'Create a list of all the tool tip objects associated with this (sub)dialog
+        'Note: Normally, a (sub)dialog wil only have a single tool tip object. This stores the 
+        '      tool tips for all the controls in the (sub)dialog.
+        Dim lstToolTips = New List(Of ToolTip)
+        For Each clsDctEntry As KeyValuePair(Of String, Component) In dctComponents
+            'TODO for efficiency, we assume that only forms and user controls have tool tip objects.
+            'Also allow other component types to have tool tip objects?
+            If Not (TypeOf clsDctEntry.Value Is Form) AndAlso Not (TypeOf clsDctEntry.Value Is UserControl) Then
+                Continue For
+            End If
+            'Tool tip objects are stored in the form's private list of components. There is no 
+            '    public access. Therefore we need multiple steps to get the list of tool tip objects.
+            Dim clsType As Type = clsDctEntry.Value.GetType()
+            Dim clsFieldInfo As FieldInfo = clsType?.GetField("components", BindingFlags.Instance Or BindingFlags.NonPublic)
+            Dim clsContainer As Container = clsFieldInfo?.GetValue(clsDctEntry.Value)
+            Dim lstToolTipsCtrl As List(Of ToolTip) = clsContainer?.Components.OfType(Of ToolTip).ToList()
+            If lstToolTipsCtrl IsNot Nothing Then
+                For Each clsToolTip As ToolTip In lstToolTipsCtrl
+                    lstToolTips.Add(clsToolTip)
+                Next
+            End If
+        Next
+
         Try
             'connect to the SQLite database that contains the translations
             Dim clsBuilder As New SQLiteConnectionStringBuilder With {
@@ -392,11 +418,8 @@ Public NotInheritable Class clsTranslateWinForm
                             'translate the component's text to the new language
                             If TypeOf clsComponent Is Control Then
                                 Dim clsControl As Control = DirectCast(clsComponent, Control)
-                                If strIdText = "ReplaceWithDynamicTranslation" Then
-                                    clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
-                                Else
-                                    clsControl.Text = strTranslation
-                                End If
+                                clsControl.Text = strTranslation
+                                TranslateToolTip(lstToolTips, clsControl, strLanguage, clsConnection)
                             ElseIf TypeOf clsComponent Is ToolStripItem Then
                                 Dim clsMenuItem As ToolStripItem = DirectCast(clsComponent, ToolStripItem)
                                 clsMenuItem.Text = strTranslation
@@ -423,6 +446,7 @@ Public NotInheritable Class clsTranslateWinForm
                                 If TypeOf clsComponent Is Control Then 'currently we only dynamically translate controls
                                     Dim clsControl As Control = DirectCast(clsComponent, Control)
                                     clsControl.Text = GetDynamicTranslation(clsControl.Text, strLanguage, clsConnection)
+                                    TranslateToolTip(lstToolTips, clsControl, strLanguage, clsConnection)
                                 End If
                             End If
 
@@ -438,6 +462,28 @@ Public NotInheritable Class clsTranslateWinForm
         End Try
         Return Nothing
     End Function
+
+    '''--------------------------------------------------------------------------------------------
+    ''' <summary>   
+    '''   Searches in <paramref name="lstToolTips"/> for tool tip text associated with 
+    '''   <paramref name="clsControl"/>. If it finds any tool tip text, then it tries to translate 
+    '''   it to <paramref name="strLanguage"/>. 
+    ''' </summary>
+    '''
+    ''' <param name="lstToolTips">      The tool tip object(s) that ay contain <paramref name="clsControl"/>'s tool tip text. </param>
+    ''' <param name="clsControl">       The control that may have tool tip text. </param>
+    ''' <param name="strLanguage">      The language code to translate to (e.g. 'fr' for French). </param>
+    ''' <param name="clsConnection">    An open connection to the SQLite translation database. </param>
+    '''--------------------------------------------------------------------------------------------
+    Private Shared Sub TranslateToolTip(lstToolTips As List(Of ToolTip), clsControl As Control, strLanguage As String, clsConnection As SQLiteConnection)
+        For Each clsToolTip As ToolTip In lstToolTips
+            Dim strToolTip As String = clsToolTip.GetToolTip(clsControl)
+            If Not String.IsNullOrEmpty(strToolTip) Then
+                clsToolTip.SetToolTip(clsControl, GetDynamicTranslation(strToolTip, strLanguage, clsConnection))
+                Exit For
+            End If
+        Next
+    End Sub
 
     '''--------------------------------------------------------------------------------------------
     ''' <summary>   
