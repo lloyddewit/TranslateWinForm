@@ -578,16 +578,16 @@ Public NotInheritable Class clsTranslateWinForm
         Using clsCommand As New SQLiteCommand(clsConnection)
 
             'in the translation text, convert any single quotes to make them suitable for the SQL command
-            strText = strText.Replace("'", "''")
+            Dim strTextForSql As String = strText.Replace("'", "''")
 
             'get all translations for the specified form and language
             'Note: The second `SELECT` is needed because we may sometimes need to translate  
             '      translated text back to the original text (e.g. from French to English when 
             '      the dialog language toggle button is clicked).
             clsCommand.CommandText = "SELECT translation FROM translations WHERE language_code = '" &
-                                     strLanguage & "' AND id_text = '" & strText & "' OR (language_code = '" &
+                                     strLanguage & "' AND id_text = '" & strTextForSql & "' OR (language_code = '" &
                                      strLanguage & "' AND id_text = " &
-                                     "(SELECT id_text FROM translations WHERE translation = '" & strText & "'))"
+                                     "(SELECT id_text FROM translations WHERE translation = '" & strTextForSql & "'))"
             Dim clsReader As SQLiteDataReader = clsCommand.ExecuteReader()
             Using clsReader
                 'for each translation row
