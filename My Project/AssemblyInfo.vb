@@ -13,7 +13,7 @@ Imports System.Runtime.InteropServices
 <Assembly: AssemblyDescription("Translates WinForm text (e.g. text in forms and menu items) into a different language (e.g. from English to French)")>
 <Assembly: AssemblyCompany("IDEMS International")>
 <Assembly: AssemblyProduct("TranslateWinForm")>
-<Assembly: AssemblyCopyright("Copyright ©  2021")>
+<Assembly: AssemblyCopyright("Copyright ©  2023")>
 <Assembly: AssemblyTrademark("")>
 
 <Assembly: ComVisible(False)>
@@ -32,6 +32,6 @@ Imports System.Runtime.InteropServices
 ' by using the '*' as shown below:
 ' <Assembly: AssemblyVersion("1.0.*")>
 
-<Assembly: AssemblyVersion("0.1.1.3")>
-<Assembly: AssemblyFileVersion("0.1.1.3")>
+<Assembly: AssemblyVersion("0.1.1.4")>
+<Assembly: AssemblyFileVersion("0.1.1.4")>
 <Assembly: NeutralResourcesLanguage("en")>
